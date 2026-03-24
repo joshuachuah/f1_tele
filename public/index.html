@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>F1 Telemetry Dashboard — 2026</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg-primary: #0a0a0f;
+    --bg-card: #111118;
+    --bg-card-hover: #16161f;
+    --border: #1e1e2a;
+    --text-primary: #e8e8f0;
+    --text-secondary: #8888a0;
+    --text-muted: #555570;
+    --accent-red: #e63946;
+    --accent-red-dim: #e6394630;
+    --accent-cyan: #00d4ff;
+    --accent-cyan-dim: #00d4ff20;
+    --accent-yellow: #ffd166;
+    --accent-yellow-dim: #ffd16620;
+    --accent-green: #06d6a0;
+    --accent-green-dim: #06d6a020;
+    --accent-purple: #a855f7;
+    --accent-purple-dim: #a855f720;
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: 'Outfit', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  .noise-overlay {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .glow-line {
+    position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 100;
+    background: linear-gradient(90deg, var(--accent-red), var(--accent-cyan), var(--accent-yellow), var(--accent-red));
+    background-size: 300% 100%;
+    animation: glowShift 6s ease-in-out infinite;
+  }
+  @keyframes glowShift { 0%,100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+
+  .container {
+    position: relative; z-index: 1;
+    max-width: 1440px; margin: 0 auto; padding: 32px 28px;
+  }
+
+  /* HEADER */
+  .header {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    margin-bottom: 36px; padding-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .header-left { display: flex; align-items: center; gap: 18px; }
+  .logo {
+    width: 48px; height: 48px; border-radius: var(--radius-sm);
+    background: linear-gradient(135deg, var(--accent-red), #ff6b6b);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 18px;
+    color: white; letter-spacing: -1px;
+  }
+  .header h1 {
+    font-size: 28px; font-weight: 800; letter-spacing: -0.5px;
+    background: linear-gradient(135deg, var(--text-primary), var(--text-secondary));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .header .subtitle {
+    font-size: 13px; color: var(--text-muted); font-weight: 400;
+    font-family: 'JetBrains Mono', monospace; margin-top: 2px;
+  }
+  .header-right { display: flex; gap: 10px; align-items: center; }
+  .status-pill {
+    display: flex; gap: 6px; align-items: center;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted);
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 20px;
+    padding: 6px 14px;
+  }
+  .status-pill .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+  }
+  .dot.green { background: var(--accent-green); animation: pulse 2s ease-in-out infinite; }
+  .dot.yellow { background: var(--accent-yellow); }
+  .dot.red { background: var(--accent-red); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  .refresh-btn {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 20px;
+    padding: 6px 14px; color: var(--text-secondary); cursor: pointer;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    display: flex; align-items: center; gap: 6px; transition: all 0.2s;
+  }
+  .refresh-btn:hover { border-color: var(--accent-cyan); color: var(--accent-cyan); }
+  .refresh-btn.spinning .icon { animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* LOADING */
+  .loading-overlay {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: var(--bg-primary);
+    justify-content: center; align-items: center; flex-direction: column; gap: 20px;
+  }
+  .loading-overlay.show { display: flex; }
+  .loader {
+    width: 48px; height: 48px; border: 3px solid var(--border);
+    border-top-color: var(--accent-red); border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  .loading-text {
+    font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text-muted);
+  }
+
+  /* ERROR */
+  .error-banner {
+    display: none; background: var(--accent-red-dim); border: 1px solid var(--accent-red);
+    border-radius: var(--radius-sm); padding: 14px 18px; margin-bottom: 20px;
+    font-size: 13px; color: var(--accent-red); line-height: 1.6;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .error-banner.show { display: block; }
+
+  /* KPI ROW */
+  .kpi-row {
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; margin-bottom: 28px;
+  }
+  .kpi-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 18px 20px; position: relative; overflow: hidden; transition: all 0.3s ease;
+  }
+  .kpi-card:hover { background: var(--bg-card-hover); transform: translateY(-2px); }
+  .kpi-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; }
+  .kpi-card:nth-child(1)::before { background: var(--accent-red); }
+  .kpi-card:nth-child(2)::before { background: var(--accent-cyan); }
+  .kpi-card:nth-child(3)::before { background: var(--accent-yellow); }
+  .kpi-card:nth-child(4)::before { background: var(--accent-green); }
+  .kpi-card:nth-child(5)::before { background: var(--accent-purple); }
+  .kpi-card:nth-child(6)::before { background: var(--accent-red); }
+  .kpi-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px;
+    color: var(--text-muted); font-weight: 600; margin-bottom: 8px;
+  }
+  .kpi-value {
+    font-size: 26px; font-weight: 800; letter-spacing: -1px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .kpi-sub {
+    font-size: 11px; color: var(--text-secondary); margin-top: 4px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* CHARTS */
+  .chart-grid { display: grid; gap: 18px; grid-template-columns: 1fr 1fr; margin-bottom: 18px; }
+  .chart-grid.triple { grid-template-columns: 1fr 1fr 1fr; }
+  .chart-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 24px; transition: all 0.3s ease;
+  }
+  .chart-card:hover { border-color: #2a2a3a; }
+  .chart-card.wide { grid-column: span 2; }
+  .chart-title { font-size: 14px; font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .chart-title .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .chart-desc { font-size: 11px; color: var(--text-muted); margin-bottom: 18px; font-family: 'JetBrains Mono', monospace; }
+  .chart-wrap { position: relative; width: 100%; }
+  .chart-wrap canvas { width: 100% !important; }
+  .legend-bar { display: flex; gap: 20px; margin-bottom: 16px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; }
+  .legend-swatch { width: 10px; height: 10px; border-radius: 3px; }
+
+  /* INSIGHTS */
+  .insight-bar { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 18px; }
+  .insight-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 20px;
+  }
+  .insight-card .icon {
+    width: 32px; height: 32px; border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; margin-bottom: 12px;
+  }
+  .insight-card h3 { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+  .insight-card p { font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
+
+  /* ANIMATIONS */
+  .kpi-card, .chart-card, .insight-card { opacity: 0; animation: fadeUp 0.5s ease-out forwards; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  .kpi-card:nth-child(1) { animation-delay: 0.05s; } .kpi-card:nth-child(2) { animation-delay: 0.1s; }
+  .kpi-card:nth-child(3) { animation-delay: 0.15s; } .kpi-card:nth-child(4) { animation-delay: 0.2s; }
+  .kpi-card:nth-child(5) { animation-delay: 0.25s; } .kpi-card:nth-child(6) { animation-delay: 0.3s; }
+  .chart-card:nth-child(1) { animation-delay: 0.35s; } .chart-card:nth-child(2) { animation-delay: 0.4s; }
+  .chart-card:nth-child(3) { animation-delay: 0.35s; } .chart-card:nth-child(4) { animation-delay: 0.4s; }
+  .insight-card:nth-child(1) { animation-delay: 0.5s; }
+  .insight-card:nth-child(2) { animation-delay: 0.55s; }
+  .insight-card:nth-child(3) { animation-delay: 0.6s; }
+
+  /* TABS */
+  .tab-row {
+    display: flex; gap: 4px; margin-bottom: 22px;
+    background: var(--bg-card); border-radius: var(--radius-sm); padding: 4px;
+    width: fit-content; border: 1px solid var(--border);
+  }
+  .tab-btn {
+    padding: 8px 18px; border: none; background: transparent;
+    color: var(--text-muted); font-family: 'Outfit', sans-serif;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    border-radius: 6px; transition: all 0.2s;
+  }
+  .tab-btn.active { background: var(--accent-red); color: white; }
+  .tab-btn:hover:not(.active) { color: var(--text-primary); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+  #dashboard-content { display: none; }
+  #dashboard-content.loaded { display: block; }
+
+  @media (max-width: 1100px) {
+    .kpi-row { grid-template-columns: repeat(3, 1fr); }
+    .chart-grid { grid-template-columns: 1fr; }
+    .chart-card.wide { grid-column: span 1; }
+    .chart-grid.triple { grid-template-columns: 1fr; }
+    .insight-bar { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 600px) {
+    .kpi-row { grid-template-columns: repeat(2, 1fr); }
+    .header { flex-direction: column; align-items: flex-start; gap: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="loading-overlay show" id="loading">
+  <div class="loader"></div>
+  <div class="loading-text" id="loading-text">Connecting to data source...</div>
+</div>
+
+<div class="noise-overlay"></div>
+<div class="glow-line"></div>
+<div class="container">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-left">
+      <div class="logo">F1</div>
+      <div>
+        <h1>Telemetry Dashboard</h1>
+        <div class="subtitle" id="subtitle">Loading...</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="status-pill">
+        <div class="dot yellow" id="status-dot"></div>
+        <span id="status-text">Connecting</span>
+      </div>
+      <button class="refresh-btn" onclick="refreshData()" id="refresh-btn">
+        <span class="icon">↻</span> Refresh
+      </button>
+    </div>
+  </div>
+
+  <div class="error-banner" id="error-banner"></div>
+
+  <div id="dashboard-content">
+
+    <!-- KPIs -->
+    <div class="kpi-row">
+      <div class="kpi-card">
+        <div class="kpi-label">Avg Speed</div>
+        <div class="kpi-value" style="color:var(--accent-red)" id="kpi-avg-speed">—</div>
+        <div class="kpi-sub" id="kpi-avg-speed-sub"></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Peak Speed</div>
+        <div class="kpi-value" style="color:var(--accent-cyan)" id="kpi-peak-speed">—</div>
+        <div class="kpi-sub" id="kpi-peak-speed-sub"></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Avg Downforce</div>
+        <div class="kpi-value" style="color:var(--accent-yellow)" id="kpi-avg-df">—</div>
+        <div class="kpi-sub" id="kpi-avg-df-sub"></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Avg Drag</div>
+        <div class="kpi-value" style="color:var(--accent-green)" id="kpi-avg-drag">—</div>
+        <div class="kpi-sub" id="kpi-avg-drag-sub"></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">DRS Usage</div>
+        <div class="kpi-value" style="color:var(--accent-purple)" id="kpi-drs">—</div>
+        <div class="kpi-sub" id="kpi-drs-sub"></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Stability</div>
+        <div class="kpi-value" style="color:var(--accent-red)" id="kpi-stab">—</div>
+        <div class="kpi-sub" id="kpi-stab-sub"></div>
+      </div>
+    </div>
+
+    <!-- TABS -->
+    <div class="tab-row">
+      <button class="tab-btn active" onclick="switchTab('aero')">Aerodynamics</button>
+      <button class="tab-btn" onclick="switchTab('stability')">Stability</button>
+      <button class="tab-btn" onclick="switchTab('drs')">DRS Analysis</button>
+    </div>
+
+    <!-- TAB: AERO -->
+    <div class="tab-content active" id="tab-aero">
+      <div class="chart-grid">
+        <div class="chart-card wide">
+          <div class="chart-title"><span class="dot" style="background:var(--accent-yellow)"></span> Downforce &amp; Drag vs Speed</div>
+          <div class="chart-desc">Averaged across 10 km/h speed bins</div>
+          <div class="legend-bar">
+            <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-yellow)"></div>Downforce (N)</div>
+            <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-red)"></div>Drag (N)</div>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-forces" height="260"></canvas></div>
+        </div>
+      </div>
+      <div class="chart-grid">
+        <div class="chart-card">
+          <div class="chart-title"><span class="dot" style="background:var(--accent-cyan)"></span> Aero Efficiency Ratio</div>
+          <div class="chart-desc">Downforce / Drag — higher = more efficient</div>
+          <div class="chart-wrap"><canvas id="chart-efficiency" height="240"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title"><span class="dot" style="background:var(--accent-purple)"></span> Wing Angle Effect on Forces</div>
+          <div class="chart-desc">Binned by 2° wing angle increments</div>
+          <div class="chart-wrap"><canvas id="chart-wing" height="240"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: STABILITY -->
+    <div class="tab-content" id="tab-stability">
+      <div class="chart-grid">
+        <div class="chart-card wide">
+          <div class="chart-title"><span class="dot" style="background:var(--accent-green)"></span> Stability Index vs Speed</div>
+          <div class="chart-desc">Stability degrades at high speed — the critical threshold zone</div>
+          <div class="chart-wrap"><canvas id="chart-stability" height="280"></canvas></div>
+        </div>
+      </div>
+      <div class="chart-grid">
+        <div class="chart-card">
+          <div class="chart-title"><span class="dot" style="background:var(--accent-red)"></span> Stability Distribution</div>
+          <div class="chart-desc">Stable vs unstable sample split</div>
+          <div class="chart-wrap"><canvas id="chart-stab-dist" height="240"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title"><span class="dot" style="background:var(--accent-yellow)"></span> Instability Risk by Speed Zone</div>
+          <div class="chart-desc">% of unstable samples per speed bin</div>
+          <div class="chart-wrap"><canvas id="chart-risk" height="240"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: DRS -->
+    <div class="tab-content" id="tab-drs">
+      <div class="chart-grid triple">
+        <div class="chart-card">
+          <div class="chart-title"><span class="dot" style="background:var(--accent-green)"></span> DRS Impact: Drag</div>
+          <div class="chart-desc">Drag reduction when DRS is active</div>
+          <div class="chart-wrap"><canvas id="chart-drs-drag" height="220"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title"><span class="dot" style="background:var(--accent-cyan)"></span> DRS Impact: Downforce</div>
+          <div class="chart-desc">Downforce comparison</div>
+          <div class="chart-wrap"><canvas id="chart-drs-df" height="220"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title"><span class="dot" style="background:var(--accent-yellow)"></span> DRS Impact: Speed</div>
+          <div class="chart-desc">Speed comparison</div>
+          <div class="chart-wrap"><canvas id="chart-drs-speed" height="220"></canvas></div>
+        </div>
+      </div>
+      <div class="chart-grid">
+        <div class="chart-card wide">
+          <div class="chart-title"><span class="dot" style="background:var(--accent-purple)"></span> DRS Activation Rate by Speed</div>
+          <div class="chart-desc">DRS usage percentage across speed bands</div>
+          <div class="chart-wrap"><canvas id="chart-drs-rate" height="240"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- INSIGHTS -->
+    <div class="insight-bar">
+      <div class="insight-card">
+        <div class="icon" style="background:var(--accent-red-dim); color:var(--accent-red);">⚡</div>
+        <h3>Speed–Stability Tradeoff</h3>
+        <p id="insight-stability">Analyzing data...</p>
+      </div>
+      <div class="insight-card">
+        <div class="icon" style="background:var(--accent-cyan-dim); color:var(--accent-cyan);">🔧</div>
+        <h3>DRS: Drag Slayer</h3>
+        <p id="insight-drs">Analyzing data...</p>
+      </div>
+      <div class="insight-card">
+        <div class="icon" style="background:var(--accent-yellow-dim); color:var(--accent-yellow);">📐</div>
+        <h3>Aero Efficiency</h3>
+        <p id="insight-aero">Analyzing data...</p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// CHART DEFAULTS
+// ═══════════════════════════════════════════════════════════
+Chart.defaults.color = '#8888a0';
+Chart.defaults.borderColor = '#1e1e2a';
+Chart.defaults.font.family = "'JetBrains Mono', monospace";
+Chart.defaults.font.size = 10;
+Chart.defaults.plugins.legend.display = false;
+Chart.defaults.elements.point.radius = 0;
+Chart.defaults.elements.point.hoverRadius = 5;
+Chart.defaults.elements.line.borderWidth = 2.5;
+Chart.defaults.elements.bar.borderRadius = 4;
+Chart.defaults.animation.duration = 900;
+Chart.defaults.animation.easing = 'easeOutQuart';
+
+const gridOpts = { color: '#1a1a24' };
+const tickOpts = { padding: 8 };
+const tooltipOpts = { backgroundColor: '#111118ee', borderColor: '#2a2a3a', borderWidth: 1, titleFont: { weight: 700 }, bodyFont: { size: 11 } };
+const chartInstances = {};
+let autoRefreshInterval = null;
+
+// Auto-refresh every 5 minutes
+const REFRESH_INTERVAL = 5 * 60 * 1000;
+
+
+// ═══════════════════════════════════════════════════════════
+// FETCH FROM SERVERLESS API (no secrets on client)
+// ═══════════════════════════════════════════════════════════
+
+async function fetchTelemetry() {
+  const res = await fetch('/api/telemetry');
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `API returned ${res.status}`);
+  }
+  const json = await res.json();
+  return json.rows;
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// AGGREGATE
+// ═══════════════════════════════════════════════════════════
+
+function aggregate(rows) {
+  const n = rows.length;
+  const sum = (arr, key) => arr.reduce((s, r) => s + (r[key] || 0), 0);
+  const avg = (arr, key) => arr.length ? sum(arr, key) / arr.length : 0;
+  const std = (arr, key) => {
+    const m = avg(arr, key);
+    return Math.sqrt(arr.reduce((s, r) => s + (r[key] - m) ** 2, 0) / arr.length);
+  };
+
+  const avgSpeed = avg(rows, 'speed_kmh');
+  const maxSpeed = Math.max(...rows.map(r => r.speed_kmh));
+  const minSpeed = Math.min(...rows.map(r => r.speed_kmh));
+  const avgDF = avg(rows, 'downforce_n');
+  const maxDF = Math.max(...rows.map(r => r.downforce_n));
+  const avgDrag = avg(rows, 'drag_n');
+  const maxDrag = Math.max(...rows.map(r => r.drag_n));
+  const drsOnRows = rows.filter(r => r.drs_active === 1);
+  const drsOffRows = rows.filter(r => r.drs_active !== 1);
+  const drsPct = drsOnRows.length / n * 100;
+  const avgStab = avg(rows, 'stability_index');
+  const stab100 = rows.filter(r => r.stability_index >= 100).length;
+  const stab100Pct = stab100 / n * 100;
+  const speedStd = std(rows, 'speed_kmh');
+
+  // Speed bins
+  const speedBins = {};
+  rows.forEach(r => {
+    const bin = Math.floor(r.speed_kmh / 10) * 10;
+    if (!speedBins[bin]) speedBins[bin] = [];
+    speedBins[bin].push(r);
+  });
+  const speedLabels = Object.keys(speedBins).map(Number).sort((a, b) => a - b);
+  const binAvg = (bin, key) => avg(speedBins[bin], key);
+  const dfBySpeed = speedLabels.map(b => Math.round(binAvg(b, 'downforce_n')));
+  const dragBySpeed = speedLabels.map(b => Math.round(binAvg(b, 'drag_n')));
+  const stabBySpeed = speedLabels.map(b => +binAvg(b, 'stability_index').toFixed(1));
+  const drsPctBySpeed = speedLabels.map(b => {
+    const bin = speedBins[b];
+    return +(bin.filter(r => r.drs_active === 1).length / bin.length * 100).toFixed(1);
+  });
+  const effBySpeed = dfBySpeed.map((d, i) => dragBySpeed[i] ? +(d / dragBySpeed[i]).toFixed(2) : 0);
+
+  // Wing bins
+  const wingBins = {};
+  rows.forEach(r => {
+    const bin = Math.floor(r.wing_angle_deg / 2) * 2;
+    if (!wingBins[bin]) wingBins[bin] = [];
+    wingBins[bin].push(r);
+  });
+  const wingLabels = Object.keys(wingBins).map(Number).sort((a, b) => a - b);
+  const wingDF = wingLabels.map(b => Math.round(avg(wingBins[b], 'downforce_n')));
+  const wingDrag = wingLabels.map(b => Math.round(avg(wingBins[b], 'drag_n')));
+
+  // DRS
+  const drsOnAvgDrag = avg(drsOnRows, 'drag_n');
+  const drsOffAvgDrag = avg(drsOffRows, 'drag_n');
+  const drsOnAvgDF = avg(drsOnRows, 'downforce_n');
+  const drsOffAvgDF = avg(drsOffRows, 'downforce_n');
+  const drsOnAvgSpeed = avg(drsOnRows, 'speed_kmh');
+  const drsOffAvgSpeed = avg(drsOffRows, 'speed_kmh');
+  const dragReduction = drsOffAvgDrag > 0 ? (drsOffAvgDrag - drsOnAvgDrag) / drsOffAvgDrag * 100 : 0;
+
+  return {
+    n, avgSpeed, maxSpeed, minSpeed, speedStd, avgDF, maxDF, avgDrag, maxDrag,
+    drsPct, drsOnCount: drsOnRows.length, avgStab, stab100Pct,
+    speedLabels: speedLabels.map(String), dfBySpeed, dragBySpeed, stabBySpeed,
+    drsPctBySpeed, effBySpeed,
+    wingLabels: wingLabels.map(b => b + '°'), wingDF, wingDrag,
+    drsOnAvgDrag, drsOffAvgDrag, drsOnAvgDF, drsOffAvgDF,
+    drsOnAvgSpeed, drsOffAvgSpeed, dragReduction,
+  };
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════════════════
+
+function destroyCharts() {
+  Object.values(chartInstances).forEach(c => c.destroy());
+  for (const k in chartInstances) delete chartInstances[k];
+}
+
+function renderDashboard(d) {
+  destroyCharts();
+
+  // KPIs
+  document.getElementById('kpi-avg-speed').textContent = d.avgSpeed.toFixed(1);
+  document.getElementById('kpi-avg-speed-sub').textContent = `km/h · σ ${d.speedStd.toFixed(1)}`;
+  document.getElementById('kpi-peak-speed').textContent = d.maxSpeed.toFixed(1);
+  document.getElementById('kpi-peak-speed-sub').textContent = `km/h · min ${d.minSpeed.toFixed(1)}`;
+  document.getElementById('kpi-avg-df').textContent = Math.round(d.avgDF).toLocaleString();
+  document.getElementById('kpi-avg-df-sub').textContent = `N · max ${Math.round(d.maxDF).toLocaleString()} N`;
+  document.getElementById('kpi-avg-drag').textContent = d.avgDrag.toFixed(1);
+  document.getElementById('kpi-avg-drag-sub').textContent = `N · max ${d.maxDrag.toFixed(1)} N`;
+  document.getElementById('kpi-drs').textContent = d.drsPct.toFixed(1) + '%';
+  document.getElementById('kpi-drs-sub').textContent = `${d.drsOnCount.toLocaleString()} activations`;
+  document.getElementById('kpi-stab').textContent = d.avgStab.toFixed(1);
+  document.getElementById('kpi-stab-sub').textContent = `avg index · ${d.stab100Pct.toFixed(1)}% at 100`;
+
+  document.getElementById('subtitle').textContent = `${d.n.toLocaleString()} telemetry samples · live from Google Sheets`;
+
+  // Insights
+  const stabThreshold = d.stabBySpeed.findIndex(s => s < 100);
+  const thresholdSpeed = stabThreshold >= 0 ? d.speedLabels[stabThreshold] : '360+';
+  const lowestStab = Math.min(...d.stabBySpeed);
+  document.getElementById('insight-stability').textContent =
+    `Stability degrades above ${thresholdSpeed} km/h. At top speed the average index drops to ${lowestStab} — ${(100 - d.stab100Pct).toFixed(1)}% of all samples show instability.`;
+  document.getElementById('insight-drs').textContent =
+    `DRS cuts average drag by ${d.dragReduction.toFixed(0)}% (${d.drsOffAvgDrag.toFixed(0)}→${d.drsOnAvgDrag.toFixed(0)} N) while barely affecting downforce. Confirms DRS is a pure drag-reduction device.`;
+  const maxEff = Math.max(...d.effBySpeed);
+  const minEff = Math.min(...d.effBySpeed);
+  document.getElementById('insight-aero').textContent =
+    `Aero efficiency (L/D) ranges from ${minEff.toFixed(1)} to ${maxEff.toFixed(1)}. The ratio is relatively flat across speeds, suggesting the setup balances downforce and drag proportionally.`;
+
+  // ── Charts ──────────────────────────────────────────────
+
+  chartInstances.forces = new Chart(document.getElementById('chart-forces'), {
+    type: 'line', data: { labels: d.speedLabels, datasets: [
+      { data: d.dfBySpeed, borderColor: '#ffd166', backgroundColor: '#ffd16618', fill: true, tension: 0.35 },
+      { data: d.dragBySpeed, borderColor: '#e63946', backgroundColor: '#e6394618', fill: true, tension: 0.35 }
+    ]}, options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      scales: { x: { title: { display: true, text: 'Speed (km/h)' }, grid: gridOpts, ticks: tickOpts }, y: { title: { display: true, text: 'Force (N)' }, grid: gridOpts, ticks: tickOpts } },
+      plugins: { tooltip: tooltipOpts } }
+  });
+
+  chartInstances.efficiency = new Chart(document.getElementById('chart-efficiency'), {
+    type: 'line', data: { labels: d.speedLabels, datasets: [
+      { data: d.effBySpeed, borderColor: '#00d4ff', backgroundColor: '#00d4ff15', fill: true, tension: 0.35 }
+    ]}, options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      scales: { x: { title: { display: true, text: 'Speed (km/h)' }, grid: gridOpts, ticks: tickOpts }, y: { title: { display: true, text: 'L/D Ratio' }, grid: gridOpts, ticks: tickOpts } } }
+  });
+
+  chartInstances.wing = new Chart(document.getElementById('chart-wing'), {
+    type: 'bar', data: { labels: d.wingLabels, datasets: [
+      { data: d.wingDF, backgroundColor: '#a855f750', borderColor: '#a855f7', borderWidth: 1, label: 'Downforce (N)' },
+      { data: d.wingDrag.map(v => v * 10), backgroundColor: '#e6394650', borderColor: '#e63946', borderWidth: 1, label: 'Drag (N × 10)' }
+    ]}, options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: true, labels: { boxWidth: 10, font: { size: 10 } } } },
+      scales: { x: { grid: gridOpts, ticks: tickOpts }, y: { grid: gridOpts, ticks: tickOpts } } }
+  });
+
+  chartInstances.stability = new Chart(document.getElementById('chart-stability'), {
+    type: 'line', data: { labels: d.speedLabels, datasets: [{
+      data: d.stabBySpeed, borderColor: '#06d6a0', backgroundColor: '#06d6a018', fill: true, tension: 0.3,
+      segment: { borderColor: ctx => ctx.p1.parsed.y < 80 ? '#e63946' : '#06d6a0' }
+    }]}, options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      scales: { x: { title: { display: true, text: 'Speed (km/h)' }, grid: gridOpts, ticks: tickOpts }, y: { title: { display: true, text: 'Stability Index' }, min: 40, max: 105, grid: gridOpts, ticks: tickOpts } } }
+  });
+
+  chartInstances.stabDist = new Chart(document.getElementById('chart-stab-dist'), {
+    type: 'doughnut', data: { labels: ['Stable (100)', 'Unstable (<100)'],
+      datasets: [{ data: [d.stab100Pct, +(100 - d.stab100Pct).toFixed(1)], backgroundColor: ['#06d6a0', '#e63946'], borderColor: '#111118', borderWidth: 3 }]
+    }, options: { responsive: true, maintainAspectRatio: false, cutout: '70%',
+      plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 10, padding: 16, font: { size: 11 } } } } }
+  });
+
+  const riskData = d.stabBySpeed.map(s => +(100 - s).toFixed(1));
+  chartInstances.risk = new Chart(document.getElementById('chart-risk'), {
+    type: 'bar', data: { labels: d.speedLabels, datasets: [{
+      data: riskData,
+      backgroundColor: riskData.map(v => v > 20 ? '#e6394688' : v > 5 ? '#ffd16688' : '#06d6a048'),
+      borderColor: riskData.map(v => v > 20 ? '#e63946' : v > 5 ? '#ffd166' : '#06d6a0'), borderWidth: 1
+    }]}, options: { responsive: true, maintainAspectRatio: false,
+      scales: { x: { title: { display: true, text: 'Speed (km/h)' }, grid: gridOpts, ticks: tickOpts }, y: { title: { display: true, text: '% Unstable' }, grid: gridOpts, ticks: tickOpts } } }
+  });
+
+  function drsBar(id, key, lA, lB, vA, vB, cA, cB) {
+    chartInstances[key] = new Chart(document.getElementById(id), {
+      type: 'bar', data: { labels: [lA, lB], datasets: [{ data: [+vA.toFixed(1), +vB.toFixed(1)], backgroundColor: [cA+'80', cB+'80'], borderColor: [cA, cB], borderWidth: 1.5 }] },
+      options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+        scales: { x: { grid: gridOpts, ticks: tickOpts }, y: { grid: { display: false }, ticks: { font: { weight: 600 } } } } }
+    });
+  }
+  drsBar('chart-drs-drag','drsDrag','DRS On','DRS Off', d.drsOnAvgDrag, d.drsOffAvgDrag, '#06d6a0','#e63946');
+  drsBar('chart-drs-df','drsDf','DRS On','DRS Off', d.drsOnAvgDF, d.drsOffAvgDF, '#00d4ff','#8888a0');
+  drsBar('chart-drs-speed','drsSpeed','DRS On','DRS Off', d.drsOnAvgSpeed, d.drsOffAvgSpeed, '#ffd166','#8888a0');
+
+  chartInstances.drsRate = new Chart(document.getElementById('chart-drs-rate'), {
+    type: 'bar', data: { labels: d.speedLabels, datasets: [{ data: d.drsPctBySpeed, backgroundColor: '#a855f740', borderColor: '#a855f7', borderWidth: 1 }] },
+    options: { responsive: true, maintainAspectRatio: false,
+      scales: { x: { title: { display: true, text: 'Speed (km/h)' }, grid: gridOpts, ticks: tickOpts }, y: { title: { display: true, text: 'DRS Active %' }, grid: gridOpts, ticks: tickOpts } } }
+  });
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// STATUS HELPERS
+// ═══════════════════════════════════════════════════════════
+
+function setStatus(state, text) {
+  const dot = document.getElementById('status-dot');
+  dot.className = 'dot ' + (state === 'ok' ? 'green' : state === 'loading' ? 'yellow' : 'red');
+  document.getElementById('status-text').textContent = text;
+}
+function showError(msg) { const el = document.getElementById('error-banner'); el.textContent = msg; el.classList.add('show'); }
+function hideError() { document.getElementById('error-banner').classList.remove('show'); }
+function showLoading(msg) { document.getElementById('loading-text').textContent = msg || 'Loading...'; document.getElementById('loading').classList.add('show'); }
+function hideLoading() { document.getElementById('loading').classList.remove('show'); }
+
+
+// ═══════════════════════════════════════════════════════════
+// MAIN
+// ═══════════════════════════════════════════════════════════
+
+async function loadData() {
+  hideError();
+  setStatus('loading', 'Fetching...');
+  showLoading('Fetching telemetry from API...');
+
+  try {
+    const rows = await fetchTelemetry();
+    showLoading(`Processing ${rows.length.toLocaleString()} rows...`);
+    const data = aggregate(rows);
+
+    hideLoading();
+    document.getElementById('dashboard-content').classList.add('loaded');
+    setStatus('ok', `Live · ${data.n.toLocaleString()} rows`);
+    renderDashboard(data);
+
+    if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+    autoRefreshInterval = setInterval(() => refreshData(true), REFRESH_INTERVAL);
+  } catch (err) {
+    hideLoading();
+    setStatus('error', 'Error');
+    showError(`Failed to load: ${err.message}`);
+  }
+}
+
+async function refreshData(silent) {
+  const btn = document.getElementById('refresh-btn');
+  btn.classList.add('spinning');
+  if (!silent) setStatus('loading', 'Refreshing...');
+  hideError();
+  try {
+    const rows = await fetchTelemetry();
+    const data = aggregate(rows);
+    renderDashboard(data);
+    setStatus('ok', `Live · ${data.n.toLocaleString()} rows`);
+  } catch (err) {
+    setStatus('error', 'Refresh failed');
+    showError(`Refresh failed: ${err.message}`);
+  }
+  btn.classList.remove('spinning');
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  event.target.classList.add('active');
+  setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
+}
+
+// Boot
+loadData();
+</script>
+</body>
+</html>
