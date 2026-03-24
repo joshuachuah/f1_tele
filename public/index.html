@@ -465,13 +465,16 @@ function aggregate(rows) {
     return Math.sqrt(arr.reduce((s, r) => s + (r[key] - m) ** 2, 0) / arr.length);
   };
 
+  const max = (arr, key) => arr.reduce((m, r) => r[key] > m ? r[key] : m, -Infinity);
+  const min = (arr, key) => arr.reduce((m, r) => r[key] < m ? r[key] : m, Infinity);
+
   const avgSpeed = avg(rows, 'speed_kmh');
-  const maxSpeed = Math.max(...rows.map(r => r.speed_kmh));
-  const minSpeed = Math.min(...rows.map(r => r.speed_kmh));
+  const maxSpeed = max(rows, 'speed_kmh');
+  const minSpeed = min(rows, 'speed_kmh');
   const avgDF = avg(rows, 'downforce_n');
-  const maxDF = Math.max(...rows.map(r => r.downforce_n));
+  const maxDF = max(rows, 'downforce_n');
   const avgDrag = avg(rows, 'drag_n');
-  const maxDrag = Math.max(...rows.map(r => r.drag_n));
+  const maxDrag = max(rows, 'drag_n');
   const drsOnRows = rows.filter(r => r.drs_active === 1);
   const drsOffRows = rows.filter(r => r.drs_active !== 1);
   const drsPct = drsOnRows.length / n * 100;
