@@ -58,8 +58,8 @@ export default async function handler(req, res) {
       }
     }
 
-    // ── Cache for 60 seconds (reduces API calls) ────────────
-    res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
+    // // ── Cache for 60 seconds (reduces API calls) ────────────
+    // res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
 
     return res.status(200).json({
       rows,
