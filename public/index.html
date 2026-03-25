@@ -158,6 +158,33 @@
     font-size: 11px; color: var(--text-secondary); margin-top: 4px;
     font-family: 'JetBrains Mono', monospace;
   }
+  .kpi-delta {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 11px; font-weight: 600; margin-top: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    padding: 2px 8px; border-radius: 4px;
+  }
+  .kpi-delta.up { color: var(--accent-green); background: var(--accent-green-dim); }
+  .kpi-delta.down { color: var(--accent-red); background: var(--accent-red-dim); }
+  .kpi-delta.neutral { color: var(--text-muted); background: var(--border); }
+  .snapshot-info {
+    display: flex; align-items: center; gap: 8px;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    color: var(--text-muted); margin-bottom: 20px;
+    padding: 10px 14px; background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  .snapshot-info .snap-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--accent-yellow);
+  }
+  .snap-btn {
+    margin-left: auto; padding: 4px 12px; background: var(--accent-yellow-dim);
+    border: 1px solid var(--accent-yellow); border-radius: 4px; color: var(--accent-yellow);
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; cursor: pointer;
+    font-weight: 600; transition: all 0.2s;
+  }
+  .snap-btn:hover { filter: brightness(1.2); }
+  .snap-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
   /* CHARTS */
   .chart-grid { display: grid; gap: 18px; grid-template-columns: 1fr 1fr; margin-bottom: 18px; }
@@ -270,37 +297,50 @@
 
   <div id="dashboard-content">
 
+    <!-- SNAPSHOT INFO BAR -->
+    <div class="snapshot-info" id="snapshot-bar" style="display:none">
+      <div class="snap-dot"></div>
+      <span id="snapshot-label">No snapshot</span>
+      <button class="snap-btn" id="snap-btn" onclick="takeSnapshot()">Take Snapshot Now</button>
+    </div>
+
     <!-- KPIs -->
     <div class="kpi-row">
       <div class="kpi-card">
         <div class="kpi-label">Avg Speed</div>
         <div class="kpi-value" style="color:var(--accent-red)" id="kpi-avg-speed">—</div>
         <div class="kpi-sub" id="kpi-avg-speed-sub"></div>
+        <div class="kpi-delta neutral" id="delta-avg-speed" style="display:none"></div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Peak Speed</div>
         <div class="kpi-value" style="color:var(--accent-cyan)" id="kpi-peak-speed">—</div>
         <div class="kpi-sub" id="kpi-peak-speed-sub"></div>
+        <div class="kpi-delta neutral" id="delta-peak-speed" style="display:none"></div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Avg Downforce</div>
         <div class="kpi-value" style="color:var(--accent-yellow)" id="kpi-avg-df">—</div>
         <div class="kpi-sub" id="kpi-avg-df-sub"></div>
+        <div class="kpi-delta neutral" id="delta-avg-df" style="display:none"></div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Avg Drag</div>
         <div class="kpi-value" style="color:var(--accent-green)" id="kpi-avg-drag">—</div>
         <div class="kpi-sub" id="kpi-avg-drag-sub"></div>
+        <div class="kpi-delta neutral" id="delta-avg-drag" style="display:none"></div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">DRS Usage</div>
         <div class="kpi-value" style="color:var(--accent-purple)" id="kpi-drs">—</div>
         <div class="kpi-sub" id="kpi-drs-sub"></div>
+        <div class="kpi-delta neutral" id="delta-drs" style="display:none"></div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Stability</div>
         <div class="kpi-value" style="color:var(--accent-red)" id="kpi-stab">—</div>
         <div class="kpi-sub" id="kpi-stab-sub"></div>
+        <div class="kpi-delta neutral" id="delta-stab" style="display:none"></div>
       </div>
     </div>
 
@@ -432,23 +472,52 @@ const tickOpts = { padding: 8 };
 const tooltipOpts = { backgroundColor: '#111118ee', borderColor: '#2a2a3a', borderWidth: 1, titleFont: { weight: 700 }, bodyFont: { size: 11 } };
 const chartInstances = {};
 let autoRefreshInterval = null;
+let currentSnapshot = null;
 
-// Auto-refresh every 5 minutes
 const REFRESH_INTERVAL = 5 * 60 * 1000;
 
 
 // ═══════════════════════════════════════════════════════════
-// FETCH FROM SERVERLESS API (no secrets on client)
+// FETCH FROM SERVERLESS API
 // ═══════════════════════════════════════════════════════════
 
 async function fetchTelemetry() {
-  const res = await fetch('/api/telemetry');
+  const res = await fetch(`/api/telemetry?t=${Date.now()}`, {
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache' }
+  });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `API returned ${res.status}`);
   }
   const json = await res.json();
+  currentSnapshot = json.snapshot || null;
   return json.rows;
+}
+
+async function takeSnapshot() {
+  const btn = document.getElementById('snap-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  try {
+    const res = await fetch(`/api/snapshot?label=Manual+snapshot&t=${Date.now()}`, {
+      method: 'POST', cache: 'no-store'
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || 'Snapshot failed');
+    }
+    const data = await res.json();
+    currentSnapshot = data.snapshot;
+    btn.textContent = 'Saved!';
+    // Refresh dashboard to show deltas
+    await refreshData(false);
+    setTimeout(() => { btn.textContent = 'Take Snapshot Now'; btn.disabled = false; }, 2000);
+  } catch (err) {
+    showError(`Snapshot failed: ${err.message}`);
+    btn.textContent = 'Take Snapshot Now';
+    btn.disabled = false;
+  }
 }
 
 
@@ -560,6 +629,54 @@ function renderDashboard(d) {
   document.getElementById('kpi-stab-sub').textContent = `avg index · ${d.stab100Pct.toFixed(1)}% at 100`;
 
   document.getElementById('subtitle').textContent = `${d.n.toLocaleString()} telemetry samples · live from Google Sheets`;
+
+  // ── Snapshot deltas ───────────────────────────────────────
+  const snap = currentSnapshot;
+  const bar = document.getElementById('snapshot-bar');
+  bar.style.display = 'flex';
+
+  if (snap && snap.snapshotAt) {
+    const snapTime = new Date(snap.snapshotAt);
+    const timeStr = snapTime.toLocaleString();
+    const label = snap.snapshotLabel || 'Snapshot';
+    document.getElementById('snapshot-label').textContent = `Comparing against: ${label} (${timeStr})`;
+
+    // Show deltas — mapping: [elementId, currentValue, snapshotKey, decimals, suffix, invertColor]
+    // invertColor: true means "lower is better" (e.g. drag)
+    const deltas = [
+      ['delta-avg-speed',  d.avgSpeed,  'avgSpeed',      1, ' km/h', false],
+      ['delta-peak-speed', d.maxSpeed,  'maxSpeed',      1, ' km/h', false],
+      ['delta-avg-df',     d.avgDF,     'avgDownforce',  0, ' N',    false],
+      ['delta-avg-drag',   d.avgDrag,   'avgDrag',       1, ' N',    true],
+      ['delta-drs',        d.drsPct,    'drsPct',        1, '%',     false],
+      ['delta-stab',       d.avgStab,   'avgStability',  1, '',      false],
+    ];
+
+    deltas.forEach(([id, current, snapKey, dec, suffix, invert]) => {
+      const el = document.getElementById(id);
+      const prev = snap[snapKey];
+      if (prev == null || isNaN(prev)) { el.style.display = 'none'; return; }
+
+      const diff = current - prev;
+      const absDiff = Math.abs(diff).toFixed(dec);
+
+      if (Math.abs(diff) < 0.05) {
+        el.className = 'kpi-delta neutral';
+        el.textContent = `— no change`;
+      } else if (diff > 0) {
+        el.className = `kpi-delta ${invert ? 'down' : 'up'}`;
+        el.textContent = `▲ +${absDiff}${suffix}`;
+      } else {
+        el.className = `kpi-delta ${invert ? 'up' : 'down'}`;
+        el.textContent = `▼ -${absDiff}${suffix}`;
+      }
+      el.style.display = 'inline-flex';
+    });
+  } else {
+    document.getElementById('snapshot-label').textContent = 'No snapshot yet — take one to start tracking changes';
+    // Hide all deltas
+    document.querySelectorAll('.kpi-delta').forEach(el => el.style.display = 'none');
+  }
 
   // Insights
   const stabThreshold = d.stabBySpeed.findIndex(s => s < 100);
