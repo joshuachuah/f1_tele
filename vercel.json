@@ -1,8 +1,5 @@
 {
   "framework": null,
   "buildCommand": "",
-  "outputDirectory": "public",
-  "rewrites": [
-    { "source": "/api/telemetry", "destination": "/api/telemetry" }
-  ]
+  "outputDirectory": "public"
 }
