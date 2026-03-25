@@ -1,74 +1,56 @@
 // /api/telemetry.js
-// Vercel Serverless Function — proxies Google Sheets API
-// Secrets are read from environment variables (never exposed to the browser)
+// Returns live telemetry data AND the latest snapshot (if one exists)
+
+import { readSheet, parseRows } from "./_sheets.js";
 
 export default async function handler(req, res) {
-  // CORS headers (allow your frontend to call this)
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
 
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
+  if (req.method === "OPTIONS") return res.status(200).end();
 
-  // ── Read secrets from environment variables ──────────────
-  const API_KEY = process.env.GOOGLE_SHEETS_API_KEY;
-  const SPREADSHEET_ID = process.env.GOOGLE_SPREADSHEET_ID;
-  const SHEET_NAME = process.env.GOOGLE_SHEET_NAME || "Sheet1";
-
-  if (!API_KEY || !SPREADSHEET_ID) {
-    return res.status(500).json({
-      error: "Server misconfigured — missing GOOGLE_SHEETS_API_KEY or GOOGLE_SPREADSHEET_ID environment variables.",
-    });
-  }
-
-  // ── Fetch data from Google Sheets API ────────────────────
-  const range = encodeURIComponent(SHEET_NAME);
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${range}?key=${API_KEY}`;
+  const DATA_SHEET = process.env.GOOGLE_SHEET_NAME || "Sheet1";
+  const SNAP_SHEET = process.env.GOOGLE_SNAPSHOT_SHEET_NAME || "Snapshots";
 
   try {
-    const response = await fetch(url);
+    // Fetch live data
+    const values = await readSheet(DATA_SHEET);
+    const rows = parseRows(values);
 
-    if (!response.ok) {
-      const errBody = await response.json().catch(() => ({}));
-      const msg = errBody?.error?.message || `Google Sheets API returned ${response.status}`;
-      return res.status(502).json({ error: msg });
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "No data rows found." });
     }
 
-    const json = await response.json();
-    const values = json.values;
-
-    if (!values || values.length < 2) {
-      return res.status(404).json({ error: "Sheet is empty or has no data rows." });
-    }
-
-    // ── Parse into row objects ──────────────────────────────
-    const headers = values[0].map((h) => h.trim().toLowerCase());
-    const rows = [];
-
-    for (let i = 1; i < values.length; i++) {
-      const row = {};
-      for (let j = 0; j < headers.length; j++) {
-        row[headers[j]] = parseFloat(values[i][j]);
+    // Fetch latest snapshot (may not exist yet)
+    let snapshot = null;
+    try {
+      const snapValues = await readSheet(SNAP_SHEET);
+      if (snapValues && snapValues.length >= 2) {
+        // Snapshot sheet format: row 0 = keys, row 1 = values
+        const keys = snapValues[0];
+        const vals = snapValues[1];
+        snapshot = {};
+        for (let i = 0; i < keys.length; i++) {
+          const v = vals[i];
+          // Try to parse as number, keep as string if not
+          const num = parseFloat(v);
+          snapshot[keys[i]] = isNaN(num) ? v : num;
+        }
       }
-      // Only include rows with a valid speed value
-      if (!isNaN(row["speed_kmh"])) {
-        rows.push(row);
-      }
+    } catch (e) {
+      // Snapshot tab might not exist yet — that's fine
+      snapshot = null;
     }
-
-    // // ── Cache for 60 seconds (reduces API calls) ────────────
-    // res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
 
     return res.status(200).json({
       rows,
       count: rows.length,
+      snapshot,
       fetchedAt: new Date().toISOString(),
     });
   } catch (err) {
     return res.status(500).json({
-      error: `Failed to fetch from Google Sheets: ${err.message}`,
+      error: `Failed to fetch data: ${err.message}`,
     });
   }
 }
